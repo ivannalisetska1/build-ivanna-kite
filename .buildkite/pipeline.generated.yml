@@ -1,0 +1,12 @@
+steps:
+  - label: "Run only if src/** changed"
+    if_changed:
+      - "src/**"
+    command: |
+      set -euxo pipefail
+      git fetch --prune origin
+      BASE="${BUILDKITE_GIT_DIFF_BASE:-origin/${BUILDKITE_PULL_REQUEST_BASE_BRANCH:-${BUILDKITE_PIPELINE_DEFAULT_BRANCH:-main}}}"
+      echo "Using base: $BASE"
+      git rev-parse "$BASE" >/dev/null
+      echo "--- Changed files vs $BASE"
+      git diff --name-status "$BASE"...HEAD
