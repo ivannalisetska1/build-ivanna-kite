@@ -1,0 +1,35 @@
+steps:
+  - label: ":mag: Debug Environment Variables"
+    command: |
+      echo "=== Environment Variables ==="
+      echo "BUILDKITE_GIT_DIFF_BASE: '${BUILDKITE_GIT_DIFF_BASE:-NOT SET}'"
+      echo "BUILDKITE_MERGE_QUEUE_BASE_BRANCH: '${BUILDKITE_MERGE_QUEUE_BASE_BRANCH:-NOT SET}'"
+      echo "BUILDKITE_MERGE_QUEUE_BASE_COMMIT: '${BUILDKITE_MERGE_QUEUE_BASE_COMMIT:-NOT SET}'"
+      echo "BUILDKITE_PULL_REQUEST_BASE_BRANCH: '${BUILDKITE_PULL_REQUEST_BASE_BRANCH:-NOT SET}'"
+      echo "Build branch: $BUILDKITE_BRANCH"
+      echo "Build source: $BUILDKITE_SOURCE"
+    
+  - label: ":gear: Setup"
+    command: echo "Setting up test environment"
+    key: setup
+
+  - label: ":test_tube: Test if_changed - Frontend"
+    command: |
+      echo "Running frontend tests"
+      echo "Files changed in frontend: $(git diff --name-only $BUILDKITE_GIT_DIFF_BASE HEAD | grep '^frontend/' || echo 'none')"
+    if_changed: "frontend/**"
+    depends_on: setup
+
+  - label: ":test_tube: Test if_changed - Backend"
+    command: |
+      echo "Running backend tests"
+      echo "Files changed in backend: $(git diff --name-only $BUILDKITE_GIT_DIFF_BASE HEAD | grep '^backend/' || echo 'none')"
+    if_changed: "backend/**"
+    depends_on: setup
+
+  - label: ":package: Build if any code changed"
+    command: |
+      echo "Building application"
+      echo "BUILDKITE_GIT_DIFF_BASE is set to: $BUILDKITE_GIT_DIFF_BASE"
+    if_changed: "frontend/**;backend/**;shared/**"
+    depends_on: setup
