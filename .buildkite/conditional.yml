@@ -1,0 +1,16 @@
+steps:
+  # Small helper step so you always see *something* after upload
+  - label: ":mag: diff base"
+    command: |
+      set -euo pipefail
+      BASE="${BUILDKITE_GIT_DIFF_BASE:-origin/${BUILDKITE_PULL_REQUEST_BASE_BRANCH:-${BUILDKITE_PIPELINE_DEFAULT_BRANCH:-main}}}"
+      echo "BASE=$BASE"
+      git rev-parse "$BASE" | cut -c1-12
+
+  - label: "Run if src/** changed"
+    if_changed: ["src/**"]
+    command: echo "src/** changed — running"
+
+  - label: "Run if docs/** changed"
+    if_changed: ["docs/**"]
+    command: echo "docs/** changed — running"
