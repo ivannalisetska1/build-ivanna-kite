@@ -3,15 +3,21 @@ steps:
     command: |
       set -euo pipefail
 
-      # Make sure the base ref exists locally (useful on fresh/shallow clones)
+      # Ensure refs exist (important on fresh/shallow clones)
       git fetch --prune origin "+refs/heads/*:refs/remotes/origin/*" --tags || true
 
-      # Resolve the base: BUILDKITE_GIT_DIFF_BASE (if set) -> PR base -> default branch -> main
+      # Pick your base (hardcode or use the smart fallback)
+      # BASE="origin/main"
       BASE="${BUILDKITE_GIT_DIFF_BASE:-origin/${BUILDKITE_PULL_REQUEST_BASE_BRANCH:-${BUILDKITE_PIPELINE_DEFAULT_BRANCH:-main}}}"
-      echo "Using diff base: $BASE"
-      git rev-parse "$BASE" >/dev/null
 
-      # Upload the second YAML with if_changed filtering against BASE
+      echo "Using diff base: $BASE"
+      # Verify the base exists; try to unshallow if needed
+      if ! git rev-parse -q --verify "$BASE" >/dev/null 2>&1; then
+        git fetch --unshallow || true
+        git rev-parse "$BASE" >/dev/null
+      fi
+
+      # Upload the conditional pipeline using the chosen base
       buildkite-agent pipeline upload .buildkite/conditional.yml \
         --apply-if-changed \
         --git-diff-base "$BASE"
