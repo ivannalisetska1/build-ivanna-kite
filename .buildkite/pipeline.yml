@@ -1,15 +1,80 @@
 steps:
-  - label: ":pipeline: Upload real pipeline (if_changed)"
-    env:
-      # For testing, hard-set a base (you’ll override this per build below).
-      BUILDKITE_GIT_DIFF_BASE: "origin/main"
+  - label: ":pipeline: Upload dynamic pipeline (if_changed)"
     command: |
       set -euxo pipefail
-      git fetch --prune origin
+
+      # Ensure we have the refs needed to resolve the base.
+      git fetch --prune origin "+refs/heads/*:refs/remotes/origin/*" --tags
+
+      # Compute the effective base for diffs:
+      BASE="${BUILDKITE_GIT_DIFF_BASE:-origin/${BUILDKITE_PULL_REQUEST_BASE_BRANCH:-${BUILDKITE_PIPELINE_DEFAULT_BRANCH:-main}}}"
+
       echo "--- Effective base"
       echo "BUILDKITE_GIT_DIFF_BASE=${BUILDKITE_GIT_DIFF_BASE:-unset}"
+      echo "Resolved BASE=$BASE"
+      git rev-parse "$BASE" >/dev/null
 
-      # Upload the real pipeline; pass the base explicitly
+      mkdir -p .buildkite
+
+      # Generate a second pipeline that:
+      # 1) Always prints a diff report and uploads changed.txt
+      # 2) Has an if_changed step that only runs when src/** changed (drops a marker)
+      # 3) Asserts reality vs expectation at the end
+      cat > .buildkite/generated.yml <<'YAML'
+      steps:
+        - label: ":mag: diff report"
+          command: |
+            set -euxo pipefail
+            git fetch --prune origin "+refs/heads/*:refs/remotes/origin/*" --tags
+            BASE="${BUILDKITE_GIT_DIFF_BASE:-origin/${BUILDKITE_PULL_REQUEST_BASE_BRANCH:-${BUILDKITE_PIPELINE_DEFAULT_BRANCH:-main}}}"
+            echo "BASE=$BASE"
+            git rev-parse "$BASE"
+            git diff --name-only "$BASE"...HEAD | tee changed.txt
+            buildkite-agent artifact upload changed.txt
+
+        - label: "Run only if src/** changed"
+          if_changed:
+            - "src/**"
+          command: |
+            set -euxo pipefail
+            echo "ran" > if_changed.marker
+            buildkite-agent artifact upload if_changed.marker
+
+        - label: ":white_check_mark: assert if_changed"
+          command: |
+            set -euxo pipefail
+            buildkite-agent artifact download changed.txt .
+            buildkite-agent artifact download if_changed.marker . || true
+
+            EXPECTED=$(grep -E '^src/' changed.txt | wc -l || true)
+            ACTUAL=$([ -f if_changed.marker ] && echo ran || echo skipped)
+
+            echo "src/ changes: $EXPECTED | step: $ACTUAL"
+
+            if [ "$EXPECTED" -gt 0 ] && [ "$ACTUAL" = "skipped" ]; then
+              echo "❌ Expected the if_changed step to run, but it didn't."
+              exit 1
+            fi
+
+            if [ "$EXPECTED" -eq 0 ] && [ "$ACTUAL" = "ran" ]; then
+              echo "❌ if_changed step ran, but there were no src/ changes."
+              exit 1
+            fi
+
+            echo "✅ matches expectation"
+      YAML
+
+      echo "--- Dry-run (see what will be uploaded after if_changed filtering)"
       buildkite-agent pipeline upload \
+        --config ".buildkite/generated.yml" \
         --apply-if-changed \
-        --git-diff-base "${BUILDKITE_GIT_DIFF_BASE:-origin/${BUILDKITE_PULL_REQUEST_BASE_BRANCH:-${BUILDKITE_PIPELINE_DEFAULT_BRANCH:-main}}}"
+        --git-diff-base "$BASE" \
+        --dry-run | tee filtered-pipeline.json
+
+      buildkite-agent artifact upload filtered-pipeline.json
+
+      echo "--- Uploading filtered pipeline"
+      buildkite-agent pipeline upload \
+        --config ".buildkite/generated.yml" \
+        --apply-if-changed \
+        --git-diff-base "$BASE"
