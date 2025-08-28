@@ -3,21 +3,32 @@ steps:
     command: |
       set -euo pipefail
 
-      # Ensure refs exist (important on fresh/shallow clones)
+      # Ensure remote refs exist locally (important on fresh/shallow clones)
       git fetch --prune origin "+refs/heads/*:refs/remotes/origin/*" --tags || true
 
-      # Pick your base (hardcode or use the smart fallback)
-      # BASE="origin/main"
+      # Choose the diff base:
+      # - Honors BUILDKITE_GIT_DIFF_BASE if you set it on the build
+      # - Otherwise: PR base -> pipeline default branch -> main
       BASE="${BUILDKITE_GIT_DIFF_BASE:-origin/${BUILDKITE_PULL_REQUEST_BASE_BRANCH:-${BUILDKITE_PIPELINE_DEFAULT_BRANCH:-main}}}"
 
       echo "Using diff base: $BASE"
-      # Verify the base exists; try to unshallow if needed
-      if ! git rev-parse -q --verify "$BASE" >/dev/null 2>&1; then
-        git fetch --unshallow || true
-        git rev-parse "$BASE" >/dev/null
+
+      # Make sure the $BASE ref resolves to a commit
+      if ! git rev-parse -q --verify "${BASE}^{commit}" >/dev/null 2>&1; then
+        # Unshallow only if this is a shallow clone
+        if [ -f .git/shallow ]; then
+          git fetch --unshallow || true
+        fi
+        # If BASE looks like origin/<branch>, ensure that remote-tracking ref exists
+        if [[ "$BASE" == origin/* ]]; then
+          BR="${BASE#origin/}"
+          git fetch origin "+refs/heads/${BR}:refs/remotes/origin/${BR}" || true
+        fi
+        git rev-parse "${BASE}^{commit}" >/dev/null
       fi
 
-      # Upload the conditional pipeline using the chosen base
+      # Upload the conditional pipeline; the agent will evaluate if_changed against $BASE
       buildkite-agent pipeline upload .buildkite/conditional.yml \
         --apply-if-changed \
-        --git-diff-base "$BASE"
+        --git-diff-
+
