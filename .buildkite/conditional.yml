@@ -11,8 +11,5 @@ steps:
     if_changed: ["src/**"]
     command: echo "src/** changed — running"
 
-  - label: "Run if docs/** changed"
-    if_changed: ["docs/**"]
-    command: echo "docs/** changed — running"
 
 
