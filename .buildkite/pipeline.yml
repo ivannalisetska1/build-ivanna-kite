@@ -1,34 +1,11 @@
 steps:
-  - label: ":pipeline: Upload conditional steps"
+  - label: "Test webhook access"
     command: |
-      set -euo pipefail
-
-      # Ensure remote refs exist locally (important on fresh/shallow clones)
-      git fetch --prune origin "+refs/heads/*:refs/remotes/origin/*" --tags || true
-
-      # Choose the diff base:
-      # - Honors BUILDKITE_GIT_DIFF_BASE if you set it on the build
-      # - Otherwise: PR base -> pipeline default branch -> main
-      BASE="${BUILDKITE_GIT_DIFF_BASE:-origin/${BUILDKITE_PULL_REQUEST_BASE_BRANCH:-${BUILDKITE_PIPELINE_DEFAULT_BRANCH:-main}}}"
-
-      echo "Using diff base: $BASE"
-
-      # Make sure the $BASE ref resolves to a commit
-      if ! git rev-parse -q --verify "${BASE}^{commit}" >/dev/null 2>&1; then
-        # Unshallow only if this is a shallow clone
-        if [ -f .git/shallow ]; then
-          git fetch --unshallow || true
-        fi
-        # If BASE looks like origin/<branch>, ensure that remote-tracking ref exists
-        if [[ "$BASE" == origin/* ]]; then
-          BR="${BASE#origin/}"
-          git fetch origin "+refs/heads/${BR}:refs/remotes/origin/${BR}" || true
-        fi
-        git rev-parse "${BASE}^{commit}" >/dev/null
+      echo "Current commit: $BUILDKITE_COMMIT"
+      echo "Before commit: ${BUILDKITE_COMMIT_BEFORE:-'Not set'}"
+      
+      # Show the difference if both are available
+      if [ -n "${BUILDKITE_COMMIT_BEFORE:-}" ]; then
+        echo "Commits changed:"
+        git log --oneline ${BUILDKITE_COMMIT_BEFORE}..${BUILDKITE_COMMIT}
       fi
-
-      # Upload the conditional pipeline; the agent will evaluate if_changed against $BASE
-      buildkite-agent pipeline upload .buildkite/conditional.yml \
-        --apply-if-changed \
-        --git-diff-
-
