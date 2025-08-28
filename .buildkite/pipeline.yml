@@ -1,16 +1,18 @@
 steps:
-  - label: ":pipeline: upload mini pipeline"
+  - label: ":pipeline: upload mini pipeline (if_changed)"
     command: |
       set -euo pipefail
 
-      # Make sure the base ref exists locally.
+      # Ensure the base ref exists locally (important on fresh checkouts/shallow clones).
       git fetch --prune origin "+refs/heads/*:refs/remotes/origin/*" --tags || true
 
-      # Resolve the base (will use BUILDKITE_GIT_DIFF_BASE if you set it on the build).
+      # Resolve the base for diffs. If you set BUILDKITE_GIT_DIFF_BASE on the build,
+      # that will be used; otherwise it falls back to PR base → default branch → main.
       BASE="${BUILDKITE_GIT_DIFF_BASE:-origin/${BUILDKITE_PULL_REQUEST_BASE_BRANCH:-${BUILDKITE_PIPELINE_DEFAULT_BRANCH:-main}}}"
-      echo "BASE=$BASE"
+      echo "Using diff base: $BASE"
+      git rev-parse "$BASE" >/dev/null
 
-      # Generate the tiniest pipeline: one step that runs only if src/** changed.
+      # Generate a tiny second pipeline with a single step that only runs if src/** changed.
       mkdir -p .buildkite
       cat > .buildkite/generated.yml <<'YAML'
       steps:
@@ -19,8 +21,8 @@ steps:
           command: echo "src/** changed — running"
       YAML
 
-      # Upload it with if_changed filtering against the chosen base.
-      buildkite-agent pipeline upload \
-        --config .buildkite/generated.yml \
+      # Upload it, applying the if_changed filter against the chosen base.
+      buildkite-agent pipeline upload .buildkite/generated.yml \
         --apply-if-changed \
         --git-diff-base "$BASE"
+
