@@ -4,4 +4,3 @@ steps:
       echo "Building application"
       echo "BUILDKITE_GIT_DIFF_BASE is set to: $BUILDKITE_GIT_DIFF_BASE"
     if_changed: "frontend/**;backend/**;shared/**"
-    depends_on: setup
