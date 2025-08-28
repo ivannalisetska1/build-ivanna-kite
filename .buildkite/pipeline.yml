@@ -1,3 +1,6 @@
+env:
+  BUILDKITE_GIT_DIFF_BASE: "origin/main" 
+
 steps:
   - label: ":mag: Debug Environment Variables"
     command: |
