@@ -1,11 +1,16 @@
 steps:
-  - label: "Test webhook access"
-    command: |
-      echo "Current commit: $BUILDKITE_COMMIT"
-      echo "Before commit: ${BUILDKITE_COMMIT_BEFORE:-'Not set'}"
-      
-      # Show the difference if both are available
-      if [ -n "${BUILDKITE_COMMIT_BEFORE:-}" ]; then
-        echo "Commits changed:"
-        git log --oneline ${BUILDKITE_COMMIT_BEFORE}..${BUILDKITE_COMMIT}
-      fi
+  - label: "🔒 Enter gate"
+    concurrency: 1
+    concurrency_group: "test-gate/$BUILDKITE_BRANCH"
+
+  - wait
+
+  - label: "📤 Generate dynamic steps"
+    key: gen
+    command: ./generate-pipeline.sh
+
+  - wait
+
+  - label: "🔓 Exit gate"
+    concurrency: 1
+    concurrency_group: "test-gate/$BUILDKITE_BRANCH"
