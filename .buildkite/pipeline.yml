@@ -1,18 +1,18 @@
 steps:
-  - label: "🔒 Enter gate"
-    concurrency: 1
-    concurrency_group: "test-gate/$BUILDKITE_BRANCH"
+- command: echo "Enter gate"
+  label: "🔒 Enter gate"
+  concurrency: 1
+  concurrency_group: "test-gate/main"
 
-  - wait
+- wait: ~
 
-  - label: "📤 Generate dynamic steps"
-    key: gen
-    command: ./generate-pipeline.sh
+- command: generate-pipeline.sh
 
-  - wait
+- wait: ~
 
-  - label: "🔓 Exit gate"
-    concurrency: 1
-    concurrency_group: "test-gate/$BUILDKITE_BRANCH"
+- command: echo "Exit gate"
+  label: "🔓 Exit gate"
+  concurrency: 1
+  concurrency_group: "test-gate/main"
 
     
