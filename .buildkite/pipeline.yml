@@ -1,67 +1,56 @@
 steps:
-  # Step 1: Always runs
-  - label: ":white_check_mark: Step 1 - Always runs"
-    key: "step-1"
+  # Step that may or may not exist based on conditions
+  - label: ":white_check_mark: Conditional step"
+    key: "conditional-step"
     command: |
-      echo "Step 1 is running"
-      echo "This step always executes"
+      echo "This step runs conditionally"
+      echo "For demo, this step exists"
+    if_changed: "conditional.yml"  # Only runs if markdown files changed
 
-  # Step 2: Depends on existing step (should work normally)
-  - label: ":arrow_right: Step 2 - Depends on existing step"
-    key: "step-2"
+  # Step that checks if another step exists before proceeding
+  - label: ":mag: Check and proceed based on step existence"
+    key: "smart-dependent"
     command: |
-      echo "Step 2 is running"
-      echo "This depends on step-1 which exists"
-    depends_on:
-      - step: "step-1"
+      echo "Checking if conditional-step exists..."
+      
+      # Try to get the step key - if it exists, we get the key back
+      STEP_KEY=$(buildkite-agent step get "key" --step "conditional-step" 2>/dev/null || echo "")
+      
+      if [ -n "$STEP_KEY" ]; then
+        echo "✅ Step 'conditional-step' exists with key: $STEP_KEY"
+        echo "Proceeding with dependent logic..."
+        # Your dependent step logic here
+      else
+        echo "❌ Step 'conditional-step' does not exist or was skipped"
+        echo "Skipping dependent logic"
+      fi
+    depends_on: "always-present-step"  # Depend on a step that always exists
 
-  # Step 3: Depends on missing step with allow_missing: true (old behavior)
-  - label: ":question: Step 3 - Missing dependency allowed"
-    key: "step-3"
+  # Always present step to ensure smart-dependent can run
+  - label: ":anchor: Always present step"
+    key: "always-present-step"
     command: |
-      echo "Step 3 is running"
-      echo "This depends on a missing step but allows it"
-    depends_on:
-      - step: "missing-step-1"
-        allow_missing: true
+      echo "This step always runs first"
+      echo "Provides a reliable dependency point"
 
-  # Step 4: Depends on missing step with allow_missing: false (should fail)
-  - label: ":x: Step 4 - Missing dependency fails"
-    key: "step-4"
+  # Alternative approach: Check multiple steps
+  - label: ":telescope: Check multiple dependencies"
     command: |
-      echo "Step 4 is running"
-      echo "This should fail because missing-step-2 doesn't exist"
-    depends_on:
-      - step: "missing-step-2"
-        allow_missing: false
-
-  # Step 5: Test if_changed interaction (if available)
-  - label: ":gear: Step 5 - Conditional step"
-    key: "step-5"
-    command: |
-      echo "Step 5 is running"
-      echo "This step runs conditionally based on file changes"
-    if_changed: "**/*.md"  # Only runs if markdown files changed
-
-  # Step 6: Depends on conditional step
-  - label: ":link: Step 6 - Depends on conditional"
-    key: "step-6"
-    command: |
-      echo "Step 6 is running"
-      echo "This depends on step-5 which may or may not run"
-    depends_on:
-      - step: "step-5"
-        allow_missing: true  # Allow if step-5 is skipped
-
-  # Step 7: Multiple dependencies with mixed allow_missing
-  - label: ":building_construction: Step 7 - Mixed dependencies"
-    key: "step-7"
-    command: |
-      echo "Step 7 is running"
-      echo "This has multiple dependencies with different allow_missing settings"
-    depends_on:
-      - step: "step-2"  # exists
-      - step: "missing-step-3"
-        allow_missing: true  # missing but allowed
-      - step: "missing-step-4"
-        allow_missing: false  # missing and should fail
+      echo "Checking multiple potential dependencies..."
+      
+      # Check first potential dependency
+      STEP1=$(buildkite-agent step get "key" --step "conditional-step" 2>/dev/null || echo "")
+      STEP2=$(buildkite-agent step get "key" --step "missing-step" 2>/dev/null || echo "")
+      
+      echo "conditional-step exists: $([ -n '$STEP1' ] && echo 'YES' || echo 'NO')"
+      echo "missing-step exists: $([ -n '$STEP2' ] && echo 'YES' || echo 'NO')"
+      
+      # Proceed based on which steps exist
+      if [ -n "$STEP1" ] && [ -n "$STEP2" ]; then
+        echo "Both dependencies exist - full workflow"
+      elif [ -n "$STEP1" ]; then
+        echo "Only conditional-step exists - partial workflow"
+      else
+        echo "No dependencies exist - minimal workflow"
+      fi
+    depends_on: "always-present-step"
