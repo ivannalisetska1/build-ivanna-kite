@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+d#!/usr/bin/env bash
 cat <<'YAML' | buildkite-agent pipeline upload
 steps:
   - label: "Deploy A (sleep 60s)"
@@ -7,5 +7,3 @@ steps:
   - label: "Deploy B (sleep 30s)"
     command: 'echo "B start"; date; sleep 30; echo "B done"; date'
 YAML
-
-
