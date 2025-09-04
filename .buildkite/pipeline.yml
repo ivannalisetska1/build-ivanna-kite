@@ -1,4 +1,4 @@
 steps:
   - label: "🚀 Trigger other pipeline"
     trigger: "pipeline-name"
-    if_changed: "{frontend/**}"
+ #   if_changed: "{frontend/**}"
