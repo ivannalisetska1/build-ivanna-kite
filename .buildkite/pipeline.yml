@@ -1,4 +1,182 @@
+# Global env (safe to share across all steps)
+env:
+  AGENT_QUEUE: "corpinfra-test"
+  AWS_REGION: "us-west-2"
+  AWS_SDK_LOAD_CONFIG: "true"
+  BUILDKITE_AGENT_IMAGE: "811290012474.dkr.ecr.us-west-2.amazonaws.com/agent:latest"
+  BUILDKITE_ARTIFACT_UPLOAD_DESTINATION: "s3://dd-buildkite-artifacts-corpinfra-test"
+  BUILDKITE_S3_ACL: "private"
+  GIT_CREDENTIAL_SECRET: "my-git-credentials"
+  KANIKO_IMAGE: "839591177169.dkr.ecr.us-west-2.amazonaws.com/kaniko:latest"
+  KRANE_IMAGE: "839591177169.dkr.ecr.us-west-2.amazonaws.com/krane:latest"
+  MANIFEST_TOOL_IMAGE: "839591177169.dkr.ecr.us-west-2.amazonaws.com/manifest-tool:latest"
+  NODE_SELECTOR: "buildkite-it-corpinfra-default"
+  SCAN_SEVERITY: "CRITICAL"
+  SCRATCH_VOLUME_PATH: "/scratch"
+  SERVICE_ACCOUNT_NAME: "agent-stack-k8s-controller"
+  TOLERATION: "it-corpinfra.doordash.com/buildkite"
+  TRIVY_IMAGE: "811290012474.dkr.ecr.us-west-2.amazonaws.com/trivy:latest"
+
+# Reusable step definitions (mappings)
+build_step: &build_step
+  label: "Build Image - matrix.arch"
+  key: "build"
+  matrix:
+    arch: ["amd64", "arm64"]
+  plugins:
+    - kubernetes:
+        checkout:
+          gitCredentialsSecret:
+            secretName: ${GIT_CREDENTIAL_SECRET}
+        podSpec:
+          serviceAccountName: ${SERVICE_ACCOUNT_NAME}
+          nodeSelector:
+            karpenter.sh/capacity-type: ${NODE_SELECTOR}
+            kubernetes.io/arch: "matrix.arch"
+          tolerations:
+            - effect: NoSchedule
+              key: ${TOLERATION}
+              operator: Exists
+          containers:
+            - image: ${KANIKO_IMAGE}
+              command:
+                - "executor --dockerfile=${DOCKERFILE_LOCATION} --context=${BUILD_CONTEXT} --destination=${ECR_REPO}:${BUILDKITE_COMMIT}-matrix.arch --no-push --tar-path=${BUILDKITE_COMMIT}-matrix.arch"
+        extraVolumeMounts: []
+  artifact_paths:
+    - "${BUILDKITE_COMMIT}-*"
+
+scan_step: &scan_step
+  label: "Scan Image - matrix.arch"
+  key: "scan"
+  depends_on: ["build"]
+  matrix:
+    arch: ["amd64", "arm64"]
+  plugins:
+    - kubernetes:
+        checkout:
+          gitCredentialsSecret:
+            secretName: ${GIT_CREDENTIAL_SECRET}
+        podSpec:
+          serviceAccountName: ${SERVICE_ACCOUNT_NAME}
+          nodeSelector:
+            karpenter.sh/capacity-type: ${NODE_SELECTOR}
+          tolerations:
+            - effect: NoSchedule
+              key: ${TOLERATION}
+              operator: Exists
+          containers:
+            - image: ${BUILDKITE_AGENT_IMAGE}
+              command:
+                - "buildkite-agent artifact download ${BUILDKITE_COMMIT}-matrix.arch ${SCRATCH_VOLUME_PATH}"
+            - image: ${TRIVY_IMAGE}
+              command:
+                - "trivy image --disable-telemetry --severity ${SCAN_SEVERITY} --ignore-status not_affected,will_not_fix --exit-code 187 --input ${SCRATCH_VOLUME_PATH}/${BUILDKITE_COMMIT}-matrix.arch"
+          volumes:
+            - name: scratch-volume
+              emptyDir: {}
+        extraVolumeMounts:
+          - name: scratch-volume
+            mountPath: ${SCRATCH_VOLUME_PATH}
+
+push_step: &push_step
+  label: "Push Image - matrix.arch"
+  key: "push"
+  depends_on: ["scan"]
+  if: build.branch == 'main'
+  matrix:
+    arch: ["amd64", "arm64"]
+  plugins:
+    - kubernetes:
+        checkout:
+          gitCredentialsSecret:
+            secretName: ${GIT_CREDENTIAL_SECRET}
+        podSpec:
+          serviceAccountName: ${SERVICE_ACCOUNT_NAME}
+          nodeSelector:
+            karpenter.sh/capacity-type: ${NODE_SELECTOR}
+          tolerations:
+            - effect: NoSchedule
+              key: ${TOLERATION}
+              operator: Exists
+          containers:
+            - image: ${BUILDKITE_AGENT_IMAGE}
+              command:
+                - "buildkite-agent artifact download ${BUILDKITE_COMMIT}-matrix.arch ${SCRATCH_VOLUME_PATH}"
+            - image: ${KRANE_IMAGE}
+              command:
+                - "krane push ${SCRATCH_VOLUME_PATH}/${BUILDKITE_COMMIT}-matrix.arch ${ECR_REPO}:${BUILDKITE_COMMIT}-matrix.arch"
+              env:
+                - name: BUILDKITE_SHELL
+                  value: "/busybox/sh -c"
+          volumes:
+            - name: scratch-volume
+              emptyDir: {}
+        extraVolumeMounts:
+          - name: scratch-volume
+            mountPath: ${SCRATCH_VOLUME_PATH}
+
+index_step: &index_step
+  label: "Create Multi-arch Index"
+  key: "index-upload"
+  depends_on: ["push"]
+  if: build.branch == 'main'
+  plugins:
+    - kubernetes:
+        checkout:
+          gitCredentialsSecret:
+            secretName: ${GIT_CREDENTIAL_SECRET}
+        podSpec:
+          serviceAccountName: ${SERVICE_ACCOUNT_NAME}
+          nodeSelector:
+            karpenter.sh/capacity-type: ${NODE_SELECTOR}
+          tolerations:
+            - effect: NoSchedule
+              key: ${TOLERATION}
+              operator: Exists
+          containers:
+            - image: ${MANIFEST_TOOL_IMAGE}
+              command:
+                - >
+                  echo '{"credsStore":"ecr-login"}' > ${SCRATCH_VOLUME_PATH}/docker_config.json &&
+                  manifest-tool --docker-cfg ${SCRATCH_VOLUME_PATH}/docker_config.json push from-args
+                  --platforms linux/amd64,linux/arm64
+                  --template ${ECR_REPO}:${BUILDKITE_COMMIT}-ARCH
+                  --target ${ECR_REPO}:`date +%Y%m%d`-${BUILDKITE_COMMIT}
+          volumes:
+            - name: scratch-volume
+              emptyDir: {}
+        extraVolumeMounts:
+          - name: scratch-volume
+            mountPath: ${SCRATCH_VOLUME_PATH}
+
+# Apply to "app" service — add if_changed to each child step and service-specific env per step
 steps:
-  - label: "🚀 Trigger other pipeline"
-    trigger: "pipeline-name"
-    if_changed: "{**}"
+  - group: "app service build and ship"
+    steps:
+      - <<: *build_step
+        if_changed: "app/**"
+        env:
+          BUILD_CONTEXT: "./app"
+          DOCKERFILE_LOCATION: "./app/Dockerfile"
+          ECR_REPO: "811290012474.dkr.ecr.us-west-2.amazonaws.com/app"
+
+      - <<: *scan_step
+        if_changed: "app/**"
+        env:
+          BUILD_CONTEXT: "./app"
+          DOCKERFILE_LOCATION: "./app/Dockerfile"
+          ECR_REPO: "811290012474.dkr.ecr.us-west-2.amazonaws.com/app"
+
+      - <<: *push_step
+        if_changed: "app/**"
+        env:
+          BUILD_CONTEXT: "./app"
+          DOCKERFILE_LOCATION: "./app/Dockerfile"
+          ECR_REPO: "811290012474.dkr.ecr.us-west-2.amazonaws.com/app"
+
+      - <<: *index_step
+        if_changed: "app/**"
+        env:
+          BUILD_CONTEXT: "./app"
+          DOCKERFILE_LOCATION: "./app/Dockerfile"
+          ECR_REPO: "811290012474.dkr.ecr.us-west-2.amazonaws.com/app"
