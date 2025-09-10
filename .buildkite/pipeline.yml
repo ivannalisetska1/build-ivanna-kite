@@ -189,3 +189,4 @@ steps:
           BUILD_CONTEXT: "./app"
           DOCKERFILE_LOCATION: "./app/Dockerfile"
           ECR_REPO: "811290012474.dkr.ecr.us-west-2.amazonaws.com/app"
+
