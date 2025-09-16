@@ -1,0 +1,13 @@
+{
+  "name": "buildkite-kaniko-demo",
+  "version": "1.0.0",
+  "description": "Simple Node.js app for Kaniko demo",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "echo 'Tests passed!'"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
