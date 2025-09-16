@@ -3,15 +3,13 @@ steps:
     command: |
       echo "Installing Node.js dependencies..."
       npm install
-    agents:
-      queue: "default"
+    
 
   - label: "Run Tests"
     command: |
       echo "Running tests..."
       npm test
-    agents:
-      queue: "default"
+ 
 
   - label: "Build Docker Image with Kaniko"
     command: |
@@ -50,8 +48,7 @@ steps:
         --cache-ttl=24h \
         --cleanup \
         --verbosity=info
-    agents:
-      queue: "default"
+
     env:
       ECR_REGISTRY: "097340723131.dkr.ecr.us-east-1.amazonaws.com/buildkite-kaniko-demo"
 
@@ -59,5 +56,4 @@ steps:
     command: |
       echo "Verifying image was pushed to ECR..."
       aws ecr describe-images --repository-name buildkite-kaniko-demo --region us-east-1
-    agents:
-      queue: "default"
+
