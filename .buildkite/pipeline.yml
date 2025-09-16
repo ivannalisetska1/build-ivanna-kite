@@ -53,7 +53,7 @@ steps:
     agents:
       queue: "default"
     env:
-      ECR_REGISTRY: "your-account.dkr.ecr.us-east-1.amazonaws.com"
+      ECR_REGISTRY: "097340723131.dkr.ecr.us-east-1.amazonaws.com/buildkite-kaniko-demo"
 
   - label: "Verify Image in ECR"
     command: |
