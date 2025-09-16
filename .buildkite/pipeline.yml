@@ -1,324 +1,63 @@
-# Define global environment variables
-env:
-  # Change this to your agent queue name
-  AGENT_QUEUE: "corpinfra-test"
-  # This is usually us-west-2
-  AWS_REGION: "us-west-2"
-  # This should always be set to true so Kaniko can get ECR credentials automatically
-  AWS_SDK_LOAD_CONFIG: "true"
-  # Use this to set the repo location and tag of the Buildkite Agent image
-  BUILDKITE_AGENT_IMAGE: "811290012474.dkr.ecr.us-west-2.amazonaws.com/ecr-public/buildkite/agent-base:ubuntu-noble"
-  # Specify your S3 artifact cache bucket in s3:// format here
-  BUILDKITE_ARTIFACT_UPLOAD_DESTINATION: "s3://dd-buildkite-artifacts-corpinfra-test"
-  # This should always be set to private
-  BUILDKITE_S3_ACL: "private"
-  # This shouldn't need to be changed unless your agent config deviates from our standard
-  GIT_CREDENTIAL_SECRET: "my-git-credentials"
-  # Use this to set the repo location and tag of the Kaniko image
-  KANIKO_IMAGE: "839591177169.dkr.ecr.us-west-2.amazonaws.com/open-source-mirror/gcr.io/kaniko-project/executor:v1.23.2-debug"
-  # Use this to set the repo location and tag of the Kaniko image
-  KRANE_IMAGE: "839591177169.dkr.ecr.us-west-2.amazonaws.com/open-source-mirror/gcr.io/go-containerregistry/krane/debug:v0.20.3"
-  # Use this to set the repo location and tag of the Manifest Tool image
-  MANIFEST_TOOL_IMAGE: "839591177169.dkr.ecr.us-west-2.amazonaws.com/open-source-mirror/dockerhub/mplatform/manifest-tool:alpine-v2.2.0"
-  # Set this to name of the Karpenter node pool for your build agents
-  NODE_SELECTOR: "buildkite-it-corpinfra-default"
-  # Vulnerability levels that will cause the scan to fail and abort the pipeline
-  SCAN_SEVERITY: "CRITICAL"
-  # Specify a filesystem path for use as scratch space
-  SCRATCH_VOLUME_PATH: "/scratch"
-  # This shouldn't need to be changed unless your agent config deviates from our standard
-  SERVICE_ACCOUNT_NAME: "agent-stack-k8s-controller"
-  # Set this to name of the Karpenter taint for your build agents
-  TOLERATION: "it-corpinfra.doordash.com/buildkite-default"
-  # Use this to set the repo location and tag of the Trivy image
-  TRIVY_IMAGE: "811290012474.dkr.ecr.us-west-2.amazonaws.com/ecr-public/aquasecurity/trivy:0.66.0"
-
-# Define common build steps
-common_steps: &build_steps
-  - label: "Build Image - {{matrix}}"
-    matrix:
-    - "amd64"
-    - "arm64"
-    agents:
-      queue: ${AGENT_QUEUE}
-    key: "build"
-    plugins:
-      - kubernetes:
-          checkout:
-            gitCredentialsSecret:
-              secretName: ${GIT_CREDENTIAL_SECRET}
-          podSpec:
-            serviceAccountName: ${SERVICE_ACCOUNT_NAME}
-            nodeSelector:
-              karpenter.sh/nodepool: ${NODE_SELECTOR}
-              kubernetes.io/arch: "{{matrix}}"
-            tolerations:
-              - effect: NoSchedule
-                key: ${TOLERATION}
-                operator: Exists
-            containers:
-              - image: ${KANIKO_IMAGE}
-                command:
-                  - "executor --dockerfile=${DOCKERFILE_LOCATION} --context=${BUILD_CONTEXT} --destination=${ECR_REPO}:${BUILDKITE_COMMIT}-{{matrix}} --no-push --tar-path=${BUILDKITE_COMMIT}-{{matrix}}"
-    artifact_paths:
-      - ${BUILDKITE_COMMIT}-*
-  - label: "Scan Image - {{matrix}}"
-    matrix:
-    - "amd64"
-    - "arm64"
-    agents:
-      queue: ${AGENT_QUEUE}
-    key: "scan"
-    depends_on:
-      - step: "build"
-    plugins:
-      - kubernetes:
-          checkout:
-            gitCredentialsSecret:
-              secretName: ${GIT_CREDENTIAL_SECRET}
-          podSpec:
-            serviceAccountName: ${SERVICE_ACCOUNT_NAME}
-            nodeSelector:
-              karpenter.sh/nodepool: ${NODE_SELECTOR}
-            tolerations:
-              - effect: NoSchedule
-                key: ${TOLERATION}
-                operator: Exists
-            containers:
-              - image: ${BUILDKITE_AGENT_IMAGE}
-                command:
-                  - "buildkite-agent artifact download ${BUILDKITE_COMMIT}-{{matrix}} ${SCRATCH_VOLUME_PATH}"
-              - image: ${TRIVY_IMAGE}
-                command:
-                  - "trivy image --disable-telemetry --severity ${SCAN_SEVERITY} --ignore-status not_affected,will_not_fix --exit-code 187 --input ${SCRATCH_VOLUME_PATH}/${BUILDKITE_COMMIT}-{{matrix}}"
-            volumes:
-              - name: scratch-volume
-                emptyDir: {}
-          extraVolumeMounts:
-            - name: scratch-volume
-              mountPath: ${SCRATCH_VOLUME_PATH}
-  - label: "Push Image - {{matrix}}"
-    matrix:
-    - "amd64"
-    - "arm64"
-    agents:
-      queue: ${AGENT_QUEUE}
-    key: "push"
-    depends_on:
-      - step: "scan"
-    if: build.branch == 'main'
-    plugins:
-      - kubernetes:
-          checkout:
-            gitCredentialsSecret:
-              secretName: ${GIT_CREDENTIAL_SECRET}
-          podSpec:
-            serviceAccountName: ${SERVICE_ACCOUNT_NAME}
-            nodeSelector:
-              karpenter.sh/nodepool: ${NODE_SELECTOR}
-            tolerations:
-              - effect: NoSchedule
-                key: ${TOLERATION}
-                operator: Exists
-            containers:
-              - image: ${BUILDKITE_AGENT_IMAGE}
-                command:
-                  - "buildkite-agent artifact download ${BUILDKITE_COMMIT}-{{matrix}} ${SCRATCH_VOLUME_PATH}"
-              - image: ${KRANE_IMAGE}
-                command:
-                  - "krane push ${SCRATCH_VOLUME_PATH}/${BUILDKITE_COMMIT}-{{matrix}} ${ECR_REPO}:${BUILDKITE_COMMIT}-{{matrix}}"
-                env:
-                - name: BUILDKITE_SHELL
-                  value: "/busybox/sh -c"
-            volumes:
-              - name: scratch-volume
-                emptyDir: {}
-          extraVolumeMounts:
-            - name: scratch-volume
-              mountPath: ${SCRATCH_VOLUME_PATH}
-  - label: "Create ${SERVICE_NAME} Multi-arch Index"
-    agents:
-      queue: ${AGENT_QUEUE}
-    key: "index-upload"
-    depends_on:
-      - step: "push"
-    if: build.branch == 'main'
-    plugins:
-      - kubernetes:
-          checkout:
-            gitCredentialsSecret:
-              secretName: ${GIT_CREDENTIAL_SECRET}
-          podSpec:
-            serviceAccountName: ${SERVICE_ACCOUNT_NAME}
-            nodeSelector:
-              karpenter.sh/nodepool: ${NODE_SELECTOR}
-            tolerations:
-              - effect: NoSchedule
-                key: ${TOLERATION}
-                operator: Exists
-            containers:
-              - image: ${MANIFEST_TOOL_IMAGE}
-                command:
-                  - echo '{"credsStore":"ecr-login"}' > ${SCRATCH_VOLUME_PATH}/docker_config.json && manifest-tool --docker-cfg ${SCRATCH_VOLUME_PATH}/docker_config.json push from-args --platforms linux/amd64,linux/arm64 --template ${ECR_REPO}:${BUILDKITE_COMMIT}-ARCH --target ${ECR_REPO}:`date +%Y%m%d`-${BUILDKITE_COMMIT}
-            volumes:
-              - name: scratch-volume
-                emptyDir: {}
-          extraVolumeMounts:
-            - name: scratch-volume
-              mountPath: ${SCRATCH_VOLUME_PATH}
-
-# Define microservice build steps
 steps:
-  - group: "app service build and ship"
-    if_changed: "app/**"
-    steps:
-      - label: "Build Image - {{matrix}}"
-        matrix:
-        - "amd64"
-        - "arm64"
-        agents:
-          queue: ${AGENT_QUEUE}
-        key: "build"
-        env:
-          # Set this to the build context for your microservice
-          BUILD_CONTEXT: "./app"
-          # Set this to the location of your microservice's Dockerfile
-          DOCKERFILE_LOCATION: "./app/Dockerfile"
-          # Set this variable to your microservice's ECR repo
-          ECR_REPO: "811290012474.dkr.ecr.us-west-2.amazonaws.com/game-2048"
-        plugins:
-          - kubernetes:
-              checkout:
-                gitCredentialsSecret:
-                  secretName: ${GIT_CREDENTIAL_SECRET}
-              podSpec:
-                serviceAccountName: ${SERVICE_ACCOUNT_NAME}
-                nodeSelector:
-                  karpenter.sh/nodepool: ${NODE_SELECTOR}
-                  kubernetes.io/arch: "{{matrix}}"
-                tolerations:
-                  - effect: NoSchedule
-                    key: ${TOLERATION}
-                    operator: Exists
-                containers:
-                  - image: ${KANIKO_IMAGE}
-                    command:
-                      - "executor --dockerfile=${DOCKERFILE_LOCATION} --context=${BUILD_CONTEXT} --destination=${ECR_REPO}:${BUILDKITE_COMMIT}-{{matrix}} --no-push --tar-path=${BUILDKITE_COMMIT}-{{matrix}}"
-        artifact_paths:
-          - ${BUILDKITE_COMMIT}-*
-      - label: "Scan Image - {{matrix}}"
-        matrix:
-        - "amd64"
-        - "arm64"
-        agents:
-          queue: ${AGENT_QUEUE}
-        key: "scan"
-        depends_on:
-          - step: "build"
-        env:
-          BUILD_CONTEXT: "./app"
-          DOCKERFILE_LOCATION: "./app/Dockerfile"
-          ECR_REPO: "811290012474.dkr.ecr.us-west-2.amazonaws.com/game-2048"
-        plugins:
-          - kubernetes:
-              checkout:
-                gitCredentialsSecret:
-                  secretName: ${GIT_CREDENTIAL_SECRET}
-              podSpec:
-                serviceAccountName: ${SERVICE_ACCOUNT_NAME}
-                nodeSelector:
-                  karpenter.sh/nodepool: ${NODE_SELECTOR}
-                tolerations:
-                  - effect: NoSchedule
-                    key: ${TOLERATION}
-                    operator: Exists
-                containers:
-                  - image: ${BUILDKITE_AGENT_IMAGE}
-                    command:
-                      - "buildkite-agent artifact download ${BUILDKITE_COMMIT}-{{matrix}} ${SCRATCH_VOLUME_PATH}"
-                  - image: ${TRIVY_IMAGE}
-                    command:
-                      - "trivy image --disable-telemetry --severity ${SCAN_SEVERITY} --ignore-status not_affected,will_not_fix --exit-code 187 --input ${SCRATCH_VOLUME_PATH}/${BUILDKITE_COMMIT}-{{matrix}}"
-                volumes:
-                  - name: scratch-volume
-                    emptyDir: {}
-              extraVolumeMounts:
-                - name: scratch-volume
-                  mountPath: ${SCRATCH_VOLUME_PATH}
-      - label: "Push Image - {{matrix}}"
-        matrix:
-        - "amd64"
-        - "arm64"
-        agents:
-          queue: ${AGENT_QUEUE}
-        key: "push"
-        depends_on:
-          - step: "scan"
-        if: build.branch == 'main'
-        env:
-          BUILD_CONTEXT: "./app"
-          DOCKERFILE_LOCATION: "./app/Dockerfile"
-          ECR_REPO: "811290012474.dkr.ecr.us-west-2.amazonaws.com/game-2048"
-        plugins:
-          - kubernetes:
-              checkout:
-                gitCredentialsSecret:
-                  secretName: ${GIT_CREDENTIAL_SECRET}
-              podSpec:
-                serviceAccountName: ${SERVICE_ACCOUNT_NAME}
-                nodeSelector:
-                  karpenter.sh/nodepool: ${NODE_SELECTOR}
-                tolerations:
-                  - effect: NoSchedule
-                    key: ${TOLERATION}
-                    operator: Exists
-                containers:
-                  - image: ${BUILDKITE_AGENT_IMAGE}
-                    command:
-                      - "buildkite-agent artifact download ${BUILDKITE_COMMIT}-{{matrix}} ${SCRATCH_VOLUME_PATH}"
-                  - image: ${KRANE_IMAGE}
-                    command:
-                      - "krane push ${SCRATCH_VOLUME_PATH}/${BUILDKITE_COMMIT}-{{matrix}} ${ECR_REPO}:${BUILDKITE_COMMIT}-{{matrix}}"
-                    env:
-                    - name: BUILDKITE_SHELL
-                      value: "/busybox/sh -c"
-                volumes:
-                  - name: scratch-volume
-                    emptyDir: {}
-              extraVolumeMounts:
-                - name: scratch-volume
-                  mountPath: ${SCRATCH_VOLUME_PATH}
-      - label: "Create Multi-arch Index"
-        agents:
-          queue: ${AGENT_QUEUE}
-        key: "index-upload"
-        depends_on:
-          - step: "push"
-        if: build.branch == 'main'
-        env:
-          BUILD_CONTEXT: "./app"
-          DOCKERFILE_LOCATION: "./app/Dockerfile"
-          ECR_REPO: "811290012474.dkr.ecr.us-west-2.amazonaws.com/game-2048"
-        plugins:
-          - kubernetes:
-              checkout:
-                gitCredentialsSecret:
-                  secretName: ${GIT_CREDENTIAL_SECRET}
-              podSpec:
-                serviceAccountName: ${SERVICE_ACCOUNT_NAME}
-                nodeSelector:
-                  karpenter.sh/nodepool: ${NODE_SELECTOR}
-                tolerations:
-                  - effect: NoSchedule
-                    key: ${TOLERATION}
-                    operator: Exists
-                containers:
-                  - image: ${MANIFEST_TOOL_IMAGE}
-                    command:
-                      - echo '{"credsStore":"ecr-login"}' > ${SCRATCH_VOLUME_PATH}/docker_config.json && manifest-tool --docker-cfg ${SCRATCH_VOLUME_PATH}/docker_config.json push from-args --platforms linux/amd64,linux/arm64 --template ${ECR_REPO}:${BUILDKITE_COMMIT}-ARCH --target ${ECR_REPO}:`date +%Y%m%d`-${BUILDKITE_COMMIT}
-                volumes:
-                  - name: scratch-volume
-                    emptyDir: {}
-              extraVolumeMounts:
-                - name: scratch-volume
-                  mountPath: ${SCRATCH_VOLUME_PATH}
+  - label: "Install Dependencies"
+    command: |
+      echo "Installing Node.js dependencies..."
+      npm install
+    agents:
+      queue: "default"
+
+  - label: "Run Tests"
+    command: |
+      echo "Running tests..."
+      npm test
+    agents:
+      queue: "default"
+
+  - label: "Build Docker Image with Kaniko"
+    command: |
+      echo "Setting up ECR authentication..."
+      
+      # Get ECR login token
+      aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin $ECR_REGISTRY
+      
+      # Create Kaniko config for ECR
+      mkdir -p /tmp/kaniko
+      cat > /tmp/kaniko/config.json << EOF
+      {
+        "auths": {
+          "$ECR_REGISTRY": {
+            "auth": "$(echo -n AWS:$(aws ecr get-login-password --region us-east-1) | base64 -w 0)"
+          }
+        }
+      }
+      EOF
+      
+      echo "Building image with Kaniko..."
+      docker run \
+        --rm \
+        -v $(pwd):/workspace \
+        -v /tmp/kaniko:/kaniko/.docker \
+        gcr.io/kaniko-project/executor:latest \
+        --context=/workspace \
+        --dockerfile=/workspace/Dockerfile \
+        --destination=$ECR_REGISTRY/buildkite-kaniko-demo:latest \
+        --destination=$ECR_REGISTRY/buildkite-kaniko-demo:${BUILDKITE_BUILD_NUMBER} \
+        --build-arg=BUILDKITE_BUILD_NUMBER=${BUILDKITE_BUILD_NUMBER} \
+        --label=buildkite.build.number=${BUILDKITE_BUILD_NUMBER} \
+        --label=buildkite.build.url=${BUILDKITE_BUILD_URL} \
+        --label=buildkite.pipeline.slug=${BUILDKITE_PIPELINE_SLUG} \
+        --cache=true \
+        --cache-ttl=24h \
+        --cleanup \
+        --verbosity=info
+    agents:
+      queue: "default"
+    env:
+      ECR_REGISTRY: "your-account.dkr.ecr.us-east-1.amazonaws.com"
+
+  - label: "Verify Image in ECR"
+    command: |
+      echo "Verifying image was pushed to ECR..."
+      aws ecr describe-images --repository-name buildkite-kaniko-demo --region us-east-1
+    agents:
+      queue: "default"
