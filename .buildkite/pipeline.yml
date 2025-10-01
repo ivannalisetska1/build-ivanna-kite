@@ -6,19 +6,13 @@ steps:
       - exit_status: 1
     command: |
       set -euo pipefail
-      ./run_flaky_check.sh
+      bash ./run_flaky_check.sh
 
   - wait: ~
     continue_on_failure: true
 
-  - label: ":white_check_mark: Gate (pass if any succeeded)"
+  - label: ":white_check_mark: Gate"
     depends_on: flaky-parallel
     command: |
       set -euo pipefail
-      if [[ "$(buildkite-agent meta-data get flaky_ok || echo false)" == "true" ]]; then
-        echo "✅ At least one parallel run passed."
-        exit 0
-      else
-        echo "❌ All parallel runs failed."
-        exit 1
-      fi
+      [[ "$(buildkite-agent meta-data get flaky_ok || echo false)" == "true" ]]
