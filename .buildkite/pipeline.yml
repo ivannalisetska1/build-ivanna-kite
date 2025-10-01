@@ -6,37 +6,13 @@ steps:
       - exit_status: 1
     command: |
       set -euo pipefail
-
-      # Show shard index (must be 0/1/2 if parallelism works)
-      echo "BUILDKITE_PARALLEL_JOB=${BUILDKITE_PARALLEL_JOB:-<unset>}"
-
-      # Unique meta key per build (cannot be empty)
-      META_KEY="flaky_ok_${BUILDKITE_BUILD_ID}"
-      echo "META_KEY=${META_KEY}"
-
-      # Deterministic winner: shard 0 passes, others fail
-      if [[ "${BUILDKITE_PARALLEL_JOB:-9}" == "0" ]]; then
-        echo "🎉 Winner on shard 0"
-        buildkite-agent meta-data set "${META_KEY}" "true"
-        exit 0
-      else
-        echo "💥 Intentional fail on shard ${BUILDKITE_PARALLEL_JOB:-<unset>}"
-        exit 1
-      fi
+      bash ./run_flaky_check.sh
 
   - wait: ~
     continue_on_failure: true
 
-  - label: ":white_check_mark: Gate (pass if any succeeded)"
+  - label: ":white_check_mark: Gate"
     depends_on: flaky-parallel
     command: |
       set -euo pipefail
-      META_KEY="flaky_ok_${BUILDKITE_BUILD_ID}"
-      echo "Checking ${META_KEY}..."
-      if [[ "$(buildkite-agent meta-data get "${META_KEY}" || echo false)" == "true" ]]; then
-        echo "✅ At least one parallel run passed."
-        exit 0
-      else
-        echo "❌ All parallel runs failed."
-        exit 1
-      fi
+      [[ "$(buildkite-agent meta-data get flaky_ok || echo false)" == "true" ]]
