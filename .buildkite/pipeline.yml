@@ -3,24 +3,27 @@ steps:
     key: flaky-parallel
     parallelism: 3
     soft_fail:
-      - exit_status: 1        # failed shards don't fail the build
+      - exit_status: 1
     command: |
       set -euo pipefail
-      # Unique key per build to avoid stale metadata
-      META_KEY="flaky_ok_${BUILDKITE_BUILD_ID}"
 
-      # Deterministic: shard 0 passes, others fail (so you can prove it works)
-      echo "Shard index: ${BUILDKITE_PARALLEL_JOB:-unknown}"
+      # Show shard index (must be 0/1/2 if parallelism works)
+      echo "BUILDKITE_PARALLEL_JOB=${BUILDKITE_PARALLEL_JOB:-<unset>}"
+
+      # Unique meta key per build (cannot be empty)
+      META_KEY="flaky_ok_${BUILDKITE_BUILD_ID}"
+      echo "META_KEY=${META_KEY}"
+
+      # Deterministic winner: shard 0 passes, others fail
       if [[ "${BUILDKITE_PARALLEL_JOB:-9}" == "0" ]]; then
-        echo "🎉 This shard is the winner"
-        buildkite-agent meta-data set "$META_KEY" "true"
+        echo "🎉 Winner on shard 0"
+        buildkite-agent meta-data set "${META_KEY}" "true"
         exit 0
       else
-        echo "💥 This shard fails on purpose"
+        echo "💥 Intentional fail on shard ${BUILDKITE_PARALLEL_JOB:-<unset>}"
         exit 1
       fi
 
-  # Let the pipeline continue even if some shards failed
   - wait: ~
     continue_on_failure: true
 
@@ -29,7 +32,8 @@ steps:
     command: |
       set -euo pipefail
       META_KEY="flaky_ok_${BUILDKITE_BUILD_ID}"
-      if [[ "$(buildkite-agent meta-data get "$META_KEY" || echo false)" == "true" ]]; then
+      echo "Checking ${META_KEY}..."
+      if [[ "$(buildkite-agent meta-data get "${META_KEY}" || echo false)" == "true" ]]; then
         echo "✅ At least one parallel run passed."
         exit 0
       else
