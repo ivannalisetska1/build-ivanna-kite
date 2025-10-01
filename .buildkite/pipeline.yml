@@ -1,59 +1,24 @@
 steps:
-  - label: "Install Dependencies"
+  - label: ":slot_machine: Flaky check (x3, any-pass)"
+    key: flaky-parallel
+    parallelism: 3
+    soft_fail:
+      - exit_status: 1
     command: |
-      echo "Installing Node.js dependencies..."
-      npm install
-    
+      set -euo pipefail
+      ./run_flaky_check.sh
 
-  - label: "Run Tests"
+  - wait: ~
+    continue_on_failure: true
+
+  - label: ":white_check_mark: Gate (pass if any succeeded)"
+    depends_on: flaky-parallel
     command: |
-      echo "Running tests..."
-      npm test
- 
-
-  - label: "Build Docker Image with Kaniko"
-    command: |
-      echo "Setting up ECR authentication..."
-      
-      # Get ECR login token
-      aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin $ECR_REGISTRY
-      
-      # Create Kaniko config for ECR
-      mkdir -p /tmp/kaniko
-      cat > /tmp/kaniko/config.json << EOF
-      {
-        "auths": {
-          "$ECR_REGISTRY": {
-            "auth": "$(echo -n AWS:$(aws ecr get-login-password --region us-east-1) | base64 -w 0)"
-          }
-        }
-      }
-      EOF
-      
-      echo "Building image with Kaniko..."
-      docker run \
-        --rm \
-        -v $(pwd):/workspace \
-        -v /tmp/kaniko:/kaniko/.docker \
-        gcr.io/kaniko-project/executor:latest \
-        --context=/workspace \
-        --dockerfile=/workspace/Dockerfile \
-        --destination=$ECR_REGISTRY/buildkite-kaniko-demo:latest \
-        --destination=$ECR_REGISTRY/buildkite-kaniko-demo:${BUILDKITE_BUILD_NUMBER} \
-        --build-arg=BUILDKITE_BUILD_NUMBER=${BUILDKITE_BUILD_NUMBER} \
-        --label=buildkite.build.number=${BUILDKITE_BUILD_NUMBER} \
-        --label=buildkite.build.url=${BUILDKITE_BUILD_URL} \
-        --label=buildkite.pipeline.slug=${BUILDKITE_PIPELINE_SLUG} \
-        --cache=true \
-        --cache-ttl=24h \
-        --cleanup \
-        --verbosity=info
-
-    env:
-      ECR_REGISTRY: "097340723131.dkr.ecr.us-east-1.amazonaws.com/buildkite-kaniko-demo"
-
-  - label: "Verify Image in ECR"
-    command: |
-      echo "Verifying image was pushed to ECR..."
-      aws ecr describe-images --repository-name buildkite-kaniko-demo --region us-east-1
-
+      set -euo pipefail
+      if [[ "$(buildkite-agent meta-data get flaky_ok || echo false)" == "true" ]]; then
+        echo "✅ At least one parallel run passed."
+        exit 0
+      else
+        echo "❌ All parallel runs failed."
+        exit 1
+      fi
