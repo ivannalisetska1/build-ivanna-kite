@@ -25,6 +25,7 @@ steps:
   - label: test-2
     command: exit 1
     timeout_in_minutes: 30
+    depends_on: blocking
     notify:
     - github_commit_status:
         context: buildkite/test-2
