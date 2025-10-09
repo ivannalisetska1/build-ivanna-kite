@@ -1,7 +1,7 @@
 steps:
   - label: test-1
     key: main
-    command: sleep 100
+    command: sleep 10
     priority: 10
     timeout_in_minutes: 30
   - label: test-2
