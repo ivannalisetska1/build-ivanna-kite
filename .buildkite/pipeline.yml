@@ -1,17 +1,38 @@
 steps:
-  - label: test-1
-    key: main
-    command: sleep 10
-    priority: 10
-    timeout_in_minutes: 30
-  - label: test-2
-    command: exit 1
-    timeout_in_minutes: 30
-    depends_on: main
-    if: build.branch == "master"
+  - group: Blocking Tests
+    key: blocking
+    steps:
+      - label: test-1
+        command: exit 0
+        priority: 10
+        timeout_in_minutes: 30
+        notify:
+          # Per-step visibility
+          - github_commit_status:
+              context: buildkite/test-1
+            if: step.state == 'waiting_for_dependencies' || step.state == 'running' || step.state == 'finished'
+
+          # Only write failure to the required context from individual blocking steps
+          - github_commit_status:
+              context: buildkite/required-context
+            if: step.outcome == 'hard_failed'
+
+    # Group updates required context when the group as a whole is non-failing
     notify:
-    - github_commit_status:
-        context: buildkite/test-2
-      if: step.state == 'waiting_for_dependencies' || step.state == 'running' || step.state
-        == 'finished'
+      - github_commit_status:
+          context: buildkite/required-context
+        if: (step.state == 'finished' || step.state == 'running') &&
+            step.outcome != 'hard_failed' && step.outcome != 'soft_failed'
+
+  - group: Non-Blocking Tests
+    key: non-blocking
+    steps:
+      - label: test-2
+        command: exit 1
+        timeout_in_minutes: 30
+        notify:
+          # Per-step visibility for non-blocking section only (not the required context)
+          - github_commit_status:
+              context: buildkite/test-2
+            if: step.state == 'waiting_for_dependencies' || step.state == 'running' || step.state == 'finished'
 
