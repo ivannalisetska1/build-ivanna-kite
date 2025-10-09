@@ -1,18 +1,32 @@
 steps:
-  - label: ":slot_machine: Flaky check (x3, any-pass)"
-    key: flaky-parallel
-    parallelism: 3
-    soft_fail:
-      - exit_status: 1
-    command: |
-      set -euo pipefail
-      bash ./run_flaky_check.sh
-
-  - wait: ~
-    continue_on_failure: true
-
-  - label: ":white_check_mark: Gate"
-    depends_on: flaky-parallel
-    command: |
-      set -euo pipefail
-      [[ "$(buildkite-agent meta-data get flaky_ok || echo false)" == "true" ]]
+- group: Blocking Tests
+  key: blocking
+  steps:
+  - label: test-1
+    command: exit 0
+    priority: 10
+    timeout_in_minutes: 30
+    notify:
+    - github_commit_status:
+        context: buildkite/test-1
+      if: step.state == 'waiting_for_dependencies' || step.state == 'running' || step.state
+        == 'finished'
+    - github_commit_status:
+        context: buildkite/required-context
+      if: step.outcome == 'hard_failed'
+  notify:
+  - github_commit_status:
+      context: buildkite/required-context
+    if: (step.state == 'finished' || step.state == 'running') && step.outcome != 'hard_failed'
+      && step.outcome != 'soft_failed'
+- group: Non-Blocking Tests
+  key: non-blocking
+  steps:
+  - label: test-2
+    command: exit 1
+    timeout_in_minutes: 30
+    notify:
+    - github_commit_status:
+        context: buildkite/test-2
+      if: step.state == 'waiting_for_dependencies' || step.state == 'running' || step.state
+        == 'finished'
