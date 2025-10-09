@@ -3,7 +3,8 @@ steps:
   key: blocking
   steps:
   - label: test-1
-    command: exit 0
+    key: main
+    command: sleep 10 
     priority: 10
     timeout_in_minutes: 30
     notify:
@@ -25,7 +26,7 @@ steps:
   - label: test-2
     command: exit 1
     timeout_in_minutes: 30
-    depends_on: blocking
+    depends_on: main
     notify:
     - github_commit_status:
         context: buildkite/test-2
