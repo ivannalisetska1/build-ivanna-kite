@@ -8,6 +8,7 @@ steps:
     command: exit 1
     timeout_in_minutes: 30
     depends_on: main
+    if: build.branch == "master"
     notify:
     - github_commit_status:
         context: buildkite/test-2
