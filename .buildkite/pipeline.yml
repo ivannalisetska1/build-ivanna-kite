@@ -1,39 +1,28 @@
 steps:
-  - group: Blocking Tests
-    key: blocking
-    steps:
-      - label: test-1
-        command: exit 0
-        priority: 10
-        timeout_in_minutes: 30
-        notify:
-          # Per-step visibility
-          - github_commit_status:
-              context: buildkite/test-1
-            if: step.state == 'waiting_for_dependencies' || step.state == 'running' || step.state == 'finished'
+  - label: ":white_check_mark: Job 1 — always passes"
+    command:
+      - echo "Job 1 running..."
+      - echo "OK"
 
-          # Only write failure to the required context from individual blocking steps
-          - github_commit_status:
-              context: buildkite/required-context
-            if: step.outcome == 'hard_failed'
+  - label: ":arrows_counterclockwise: Job 2 — fails once, passes on retry"
+    key: flaky_once
+    command:
+      - |
+        echo "Retry count is: $BUILDKITE_RETRY_COUNT"
 
-    # Group updates required context when the group as a whole is non-failing
-    notify:
-      - github_commit_status:
-          context: buildkite/required-context
-        if: (step.state == 'finished' || step.state == 'running') &&
-            step.outcome != 'hard_failed' && step.outcome != 'soft_failed'
+        if [ "$BUILDKITE_RETRY_COUNT" = "" ] || [ "$BUILDKITE_RETRY_COUNT" -eq 0 ]; then
+          echo "Failing on first attempt on purpose."
+          exit 1
+        fi
 
-  - group: Non-Blocking Tests
-    key: non-blocking
-    steps:
-      - label: test-2
-        command: exit 1
-        timeout_in_minutes: 30
-        notify:
-          # Per-step visibility for non-blocking section only (not the required context)
-          - github_commit_status:
-              context: buildkite/test-2
-            if: step.state == 'waiting_for_dependencies' || step.state == 'running' || step.state == 'finished'
+        echo "This is a retry; passing now."
+    retry:
+      manual:
+        permit_on_passed: false
+      automatic: false
 
-
+  - label: ":white_check_mark: Job 3 — runs after flaky job succeeds"
+    depends_on: flaky_once
+    command:
+      - echo "Job 3 running..."
+      - echo "OK"
