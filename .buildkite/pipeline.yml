@@ -6,7 +6,7 @@ steps:
 
   - label: ":arrows_counterclockwise: Job 2 — fails once, passes on retry"
     key: flaky_once
-    command: "./retry-test.sh"
+    command: "retry-test.sh"
     retry:
       manual:
         permit_on_passed: false
