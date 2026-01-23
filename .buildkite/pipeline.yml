@@ -6,16 +6,15 @@ steps:
 
   - label: ":arrows_counterclockwise: Job 2 — fails once, passes on retry"
     key: flaky_once
-    command:
-      - |
-        echo "Retry count is: $BUILDKITE_RETRY_COUNT"
+    command: |
+      echo "Retry count is: $BUILDKITE_RETRY_COUNT"
 
-        if [ "$BUILDKITE_RETRY_COUNT" = "" ] || [ "$BUILDKITE_RETRY_COUNT" -eq 0 ]; then
-          echo "Failing on first attempt on purpose."
-          exit 1
-        fi
+      if [ -z "$BUILDKITE_RETRY_COUNT" ] || [ "$BUILDKITE_RETRY_COUNT" -eq 0 ]; then
+        echo "Failing on first attempt on purpose."
+        exit 1
+      fi
 
-        echo "This is a retry; passing now."
+      echo "This is a retry; passing now."
     retry:
       manual:
         permit_on_passed: false
