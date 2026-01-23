@@ -7,14 +7,24 @@ steps:
   - label: ":arrows_counterclockwise: Job 2 — fails once, passes on retry"
     key: flaky_once
     command: |
-      echo "Retry count is: $BUILDKITE_RETRY_COUNT"
+      set -eu
 
-      if [ -z "$BUILDKITE_RETRY_COUNT" ] || [ "$BUILDKITE_RETRY_COUNT" -eq 0 ]; then
-        echo "Failing on first attempt on purpose."
-        exit 1
+      echo "Env retry count (for debugging): ${BUILDKITE_RETRY_COUNT:-}"
+      echo "Script path (for debugging): ${BUILDKITE_SCRIPT_PATH:-}"
+
+      # This value persists for the build across job retries (UI or API),
+      # and does not depend on the agent filesystem.
+      FAILED_ONCE="$(buildkite-agent meta-data get flaky_once_failed 2>/dev/null || true)"
+      echo "Meta-data flaky_once_failed: ${FAILED_ONCE:-<unset>}"
+
+      if [ "$FAILED_ONCE" = "true" ]; then
+        echo "Already failed once -> passing now."
+        exit 0
       fi
 
-      echo "This is a retry; passing now."
+      echo "First attempt -> setting meta-data and failing on purpose."
+      buildkite-agent meta-data set flaky_once_failed true
+      exit 1
     retry:
       manual:
         permit_on_passed: false
