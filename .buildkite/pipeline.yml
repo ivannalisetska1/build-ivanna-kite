@@ -7,14 +7,23 @@ steps:
   - label: ":arrows_counterclockwise: Job 2 — fails once, passes on retry"
     key: flaky_once
     command: |
-      echo "Retry count is: $BUILDKITE_RETRY_COUNT"
-
-      if [ "${BUILDKITE_RETRY_COUNT:-0}" -eq 0 ]; then
+      # Check BUILDKITE_RETRY_COUNT at runtime
+      # Don't use ${VAR:-default} syntax in YAML - it gets interpolated at upload time
+      # Instead, check the variable directly in the script
+      if [ -z "$BUILDKITE_RETRY_COUNT" ]; then
+        RETRY_COUNT=0
+      else
+        RETRY_COUNT=$BUILDKITE_RETRY_COUNT
+      fi
+      echo "Retry count is: $RETRY_COUNT"
+      
+      # Check if this is a retry (BUILDKITE_RETRY_COUNT will be 1 or higher)
+      if [ "$RETRY_COUNT" -eq 0 ]; then
         echo "Failing on first attempt on purpose."
         exit 1
       fi
-
-      echo "This is a retry; passing now."
+      
+      echo "This is a retry (attempt $RETRY_COUNT); passing now."
     retry:
       manual:
         permit_on_passed: false
