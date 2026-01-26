@@ -2,7 +2,7 @@ steps:
   - label: ":white_check_mark: Job 1 — always passes"
     command:
       - echo "Job 1 running..."
-      - echo "OK"
+    
 
   - label: ":arrows_counterclockwise: Job 2 — fails once, passes on retry"
     key: flaky_once
