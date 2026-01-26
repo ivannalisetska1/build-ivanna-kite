@@ -6,6 +6,6 @@ steps:
     retry:
       manual:
         permit_on_passed: false
-      automatic: false
+      automatic: true
 
 
