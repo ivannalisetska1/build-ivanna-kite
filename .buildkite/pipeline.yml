@@ -12,8 +12,4 @@ steps:
         permit_on_passed: false
       automatic: false
 
-  - label: ":white_check_mark: Job 3 — runs after flaky job succeeds"
-    depends_on: flaky_once
-    command:
-      - echo "Job 3 running..."
-      - echo "OK"
+
