@@ -1,11 +1,8 @@
 steps:
-
-  - label: ":arrows_counterclockwise: Job 2 — fails once, passes on retry"
-    key: flaky_once
-    command: "retry-test.sh"
-    retry:
-      manual:
-        permit_on_passed: false
-      automatic: false
-
-
+  - label: ":test_tube: Print GitHub trigger info"
+    command: |
+      echo "BUILDKITE_SOURCE=$BUILDKITE_SOURCE"
+      echo "BUILDKITE_GITHUB_EVENT=$BUILDKITE_GITHUB_EVENT"
+      echo "BUILDKITE_GITHUB_ACTION=$BUILDKITE_GITHUB_ACTION"
+      echo "BUILDKITE_PULL_REQUEST=$BUILDKITE_PULL_REQUEST"
+      echo "BUILDKITE_BRANCH=$BUILDKITE_BRANCH"
