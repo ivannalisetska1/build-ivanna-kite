@@ -24,3 +24,5 @@ steps:
 
   - command: echo "You are getting the expected behaviour"
     depends_on: approve-deploy
+
+  - command: echo "You are geting the expected behaviour2" 
