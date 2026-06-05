@@ -1,6 +1,10 @@
 steps:
   - key: approval-comment
     command: |
+      API_TOKEN=$(buildkite-agent secret get API_TOKEN)
+      GITHUB_TOKEN=$(buildkite-agent secret get GITHUB_TOKEN)
+      export API_TOKEN GITHUB_TOKEN
+
       echo "API_TOKEN length: $${#API_TOKEN}"
       echo "GITHUB_TOKEN length: $${#GITHUB_TOKEN}"
 
