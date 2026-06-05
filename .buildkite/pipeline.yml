@@ -15,3 +15,5 @@ steps:
     depends_on: approval-comment
   - command: echo "You are geting the expected behaviour" 
     depends_on: approve-deploy
+
+  - command: echo "You are geting the expected behaviour2" 
